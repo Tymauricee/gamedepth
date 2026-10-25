@@ -1,0 +1,11 @@
+data/
+runs/
+eval/
+models/
+*.pt
+*.zip
+*.tar.gz
+__pycache__/
+webcam_fotos/
+screenshot_*.png
+.venv/
