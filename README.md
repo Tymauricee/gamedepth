@@ -120,7 +120,14 @@ Beim Aufnehmen löst ein Klick ins Kamerabild einen Countdown von 3 s aus. Danac
 | eigenes Netz, RHD + GTA | 16/16 | 14/25 | 0,78 (0,68–0,88) |
 | Depth Anything V2 Small | 16/16 | 25/25 | 1,00 |
 
-Live-Demo: 55 Bilder/s bei 320 × 256 auf einer RTX 4050 (Laptop).
+**Größe und Geschwindigkeit** (`speed_test.py`, nur der Durchlauf durch das Netz, Laptop mit RTX 4050 bzw. dessen Prozessor mit 12 Threads, jeweils bei der Eingabegröße, für die das Modell gedacht ist):
+
+| Modell | Parameter | Eingabe | Trainingsbilder | Grafikkarte | Prozessor |
+| --- | --- | --- | --- | --- | --- |
+| eigenes Netz | 14,4 Mio. | 320 × 256 | 41.258 gerenderte | 7,6 ms (131 Bilder/s) | 138 ms (7,3 Bilder/s) |
+| Depth Anything V2 Small | 24,8 Mio. | 518 × 518 | 595.000 synthetische + 62 Mio. echte | 35,0 ms (29 Bilder/s) | 613 ms (1,6 Bilder/s) |
+
+Die ganze Live-Demo (mit Umrechnen und Einfärben) schafft 55 Bilder/s.
 
 **Was die Netze aus den Spieldaten zusätzlich gelernt haben:** Das GTA-Netz schätzt nach der Bildhöhe („weiter unten = näher“). Das RHD-Netz hat gelernt, dass die Hand meist vorne ist und dass alles außer der Person weit weg ist (in RHD ist der Hintergrund immer ein flaches Foto in 5 m Entfernung); auf echten Fotos erscheint der Raum deshalb schwarz. Liegt die Hand hinter dem Körper auf Hüfthöhe, zeigen die eigenen Netze sie meist so nah wie die Hüfte. Alle Zahlen stammen aus je einem Trainingslauf; zwei Läufe mit gleichen Einstellungen unterschieden sich im AbsRel des ganzen Bildes um bis zu 0,025.
 
