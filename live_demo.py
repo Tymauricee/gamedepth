@@ -10,6 +10,7 @@ siehe Webcam-Test).
 Tasten (im Demo-Fenster):
   1, 2, 3 …  eigenes Netz wechseln (Reihenfolge wie bei --checkpoints)
   d          Depth Anything ein/aus
+  k          Kamerabild ein/aus (ohne Kamerabild füllen die Tiefenbilder den Bildschirm besser)
   f          Vollbild ein/aus
   s          Bildschirmfoto speichern
   q / Esc    beenden (oder Fenster schließen)
@@ -68,7 +69,7 @@ def legend(width):
     out = np.vstack([
         bar(width, 44, [(250, "Probier's aus: Halte die Hand vor deinen Körper – und dann hinter dich auf Hüfthöhe.",
                          20 if big else 14, FG)]),
-        bar(width, 26, [(250, "1/2/3 Netz wechseln · D Depth Anything ein/aus · F Vollbild · S Foto · Q Ende",
+        bar(width, 26, [(250, "1/2/3 Netz · D Depth Anything · K Kamerabild · F Vollbild · S Foto · Q Ende",
                          14 if big else 12, GREY)]),
     ])
     ramp = np.linspace(255, 0, 200).astype(np.uint8)[None].repeat(18, 0)  # links hell = nah
@@ -77,12 +78,14 @@ def legend(width):
     return out
 
 
+@lru_cache(maxsize=64)
 def title(width, fps):
     return bar(width, 56, [(16, "GameDepth – Tiefe aus einem einzigen Kamerabild, gelernt nur aus Spieldaten",
                             24 if width >= 1400 else 17, FG),
                            (-16, f"{fps:4.1f} Bilder/s", 16, GREY)])
 
 
+@lru_cache(maxsize=64)
 def header(width, labels):
     return bar(width, 36, [(i * PANEL_W + 12, text, 17, FG) for i, text in enumerate(labels)])
 
@@ -136,6 +139,23 @@ def load_da2(model_id, device, offline):
     return AutoModelForDepthEstimation.from_pretrained(model_id).to(device).eval()
 
 
+def fit_to_window(win, view):
+    """OpenCV zieht das Bild im Vollbild auf die ganze Bildschirmfläche und verzerrt es.
+    Deshalb wird es vorher mit dunklen Rändern auf das Seitenverhältnis des Bildschirms gebracht."""
+    try:
+        _, _, ww, wh = cv2.getWindowImageRect(win)
+    except (cv2.error, AttributeError):
+        return view
+    h, w = view.shape[:2]
+    if ww <= 0 or wh <= 0 or abs(w / h - ww / wh) < 0.01:
+        return view
+    if w / h > ww / wh:  # Bild breiter als Fenster: oben und unten auffüllen
+        pad = int(round(w * wh / ww)) - h
+        return cv2.copyMakeBorder(view, pad // 2, pad - pad // 2, 0, 0, cv2.BORDER_CONSTANT, value=BG)
+    pad = int(round(h * ww / wh)) - w
+    return cv2.copyMakeBorder(view, 0, 0, pad // 2, pad - pad // 2, cv2.BORDER_CONSTANT, value=BG)
+
+
 def window_open(win):
     """False, sobald das Fenster mit dem X geschlossen wurde (sonst würde imshow es neu öffnen)."""
     try:
@@ -157,6 +177,7 @@ def main():
     ap.add_argument("--width", type=int, default=320, help="Eingabebreite eigenes Netz (Vielfaches von 32)")
     ap.add_argument("--height", type=int, default=256, help="Eingabehöhe eigenes Netz (Vielfaches von 32)")
     ap.add_argument("--fullscreen", action="store_true")
+    ap.add_argument("--da2-fp32", action="store_true", help="Depth Anything in 32 Bit rechnen (langsamer)")
     args = ap.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
@@ -192,7 +213,9 @@ def main():
     if full:
         cv2.setWindowProperty(win, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
 
-    active, show_da2 = 0, da2 is not None
+    active, show_da2, show_cam = 0, da2 is not None, True
+    half = device == "cuda" and not args.da2_fp32  # 16-Bit-Zahlen: schneller auf der Grafikkarte
+    shown_labels, shown_fps, next_update, last_size = None, 0.0, 0.0, None
     color_own, color_da2 = Colorizer(), Colorizer()
     ms_own = ms_da2 = fps = 0.0
     last = time.perf_counter()
@@ -209,13 +232,21 @@ def main():
             x = to_tensor(cv2.resize(rgb, (args.width, args.height), interpolation=cv2.INTER_AREA)).to(device)
             near = np.exp(-nets[active][1](x)[0, 0].float().cpu().numpy())  # 1/Tiefe: groß = nah
             ms_own += 0.1 * ((time.perf_counter() - t) * 1000 - ms_own)
-            panels = [cv2.resize(frame, (PANEL_W, PANEL_H), interpolation=cv2.INTER_AREA), color_own(near)]
-            labels = ["Kamera", f"GameDepth: {nets[active][0]} · {ms_own:.0f} ms"]
+            panels = [color_own(near)]
+            labels = [f"GameDepth: {nets[active][0]} · {ms_own:.0f} ms"]
+            if show_cam:
+                panels.insert(0, cv2.resize(frame, (PANEL_W, PANEL_H), interpolation=cv2.INTER_AREA))
+                labels.insert(0, "Kamera")
 
             if show_da2:
                 t = time.perf_counter()
                 x = to_tensor(cv2.resize(rgb, (da2_w, da2_h), interpolation=cv2.INTER_AREA)).to(device)
-                disp = da2(pixel_values=x).predicted_depth[0].float().cpu().numpy()  # groß = nah
+                with torch.autocast("cuda", dtype=torch.float16, enabled=half):
+                    disp = da2(pixel_values=x).predicted_depth[0].float().cpu().numpy()  # groß = nah
+                if half and not np.isfinite(disp).all():
+                    half = False
+                    print("16 Bit liefert ungültige Werte, Depth Anything rechnet ab jetzt mit 32 Bit.", flush=True)
+                    continue
                 ms_da2 += 0.1 * ((time.perf_counter() - t) * 1000 - ms_da2)
                 panels.append(color_da2(disp))
                 labels.append(f"Depth Anything V2 Small · {ms_da2:.0f} ms")
@@ -223,22 +254,34 @@ def main():
             now = time.perf_counter()
             fps += 0.1 * (1 / max(now - last, 1e-6) - fps)
             last = now
+            if now >= next_update or len(labels) != len(shown_labels or ()):  # Zahlen nur 2-mal pro Sekunde
+                shown_labels, shown_fps, next_update = tuple(labels), round(fps, 1), now + 0.5
             width = PANEL_W * len(panels)
-            view = np.vstack([title(width, fps), header(width, labels), np.hstack(panels), legend(width)])
-            cv2.imshow(win, view)
+            view = np.vstack([title(width, shown_fps), header(width, shown_labels), np.hstack(panels), legend(width)])
+            if full:
+                view_shown = fit_to_window(win, view)
+            else:  # Fenstergröße an das Bild anpassen, damit nichts verzerrt wird
+                if view.shape[:2] != last_size:
+                    cv2.resizeWindow(win, view.shape[1], view.shape[0])
+                    last_size = view.shape[:2]
+                view_shown = view
+            cv2.imshow(win, view_shown)
 
             key = cv2.waitKey(1) & 0xFF
             if key in (ord("q"), ord("Q"), 27) or not window_open(win):
                 break
             if ord("1") <= key < ord("1") + len(nets):
                 active = key - ord("1")
-                color_own = Colorizer()
+                color_own, next_update = Colorizer(), 0.0  # neuen Namen sofort anzeigen
             elif key in (ord("d"), ord("D")) and da2 is not None:
                 show_da2 = not show_da2
+            elif key in (ord("k"), ord("K")):
+                show_cam = not show_cam  # ohne Kamerabild werden die Tiefenbilder im Vollbild größer
             elif key in (ord("f"), ord("F")):
                 full = not full
                 cv2.setWindowProperty(win, cv2.WND_PROP_FULLSCREEN,
                                       cv2.WINDOW_FULLSCREEN if full else cv2.WINDOW_NORMAL)
+                last_size = None  # nach dem Verlassen des Vollbilds Fenstergröße neu setzen
             elif key in (ord("s"), ord("S")):
                 name = f"demo_{time.strftime('%Y%m%d_%H%M%S')}.png"
                 cv2.imwrite(name, view)

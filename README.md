@@ -82,7 +82,7 @@ Unter Windows startet ein Doppelklick auf `start_demo.bat` dasselbe im Vollbild 
 
 Nebeneinander: Kamerabild, Schätzung des eigenen Netzes und Depth Anything V2 Small zum Vergleich (hell = nah). Über jedem Bild steht die Rechenzeit pro Bild. Besucher halten die Hand vor den Körper (wird hell) und dann hinter sich auf Hüfthöhe – dort irrt sich das eigene Netz oft, Depth Anything nicht (siehe Ergebnisse).
 
-Tasten: `1`/`2`/`3` eigenes Netz wechseln, `d` Depth Anything ein/aus, `f` Vollbild, `s` Bildschirmfoto, `q` oder `Esc` beenden. `--offline` lädt Depth Anything nur aus dem Zwischenspeicher (einmal vorher mit Internet starten). Eine externe USB-Webcam wählt man mit `--camera 1`.
+Tasten: `1`/`2`/`3` eigenes Netz wechseln, `d` Depth Anything ein/aus, `k` Kamerabild ein/aus (ohne füllen die Tiefenbilder den Bildschirm besser), `f` Vollbild (ohne Verzerrung), `s` Bildschirmfoto, `q` oder `Esc` beenden. `--offline` lädt Depth Anything nur aus dem Zwischenspeicher (einmal vorher mit Internet starten). Eine externe USB-Webcam wählt man mit `--camera 1`.
 
 ## Test mit echten Fotos
 
