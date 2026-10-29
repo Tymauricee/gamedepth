@@ -2,6 +2,10 @@
 
   python speed_test.py --checkpoint rhd.pt --da2
 
+Mit --fp16 zusätzlich auf der Grafikkarte mit 16-Bit-Zahlen (torch.autocast), wie in der Live-Demo
+für Depth Anything. Laptop dabei am Netzteil und im Leistungsmodus betreiben, sonst drosselt die
+Grafikkarte.
+
 Gemessen wird nur der Durchlauf durch das Netz (ohne Kamera, Umrechnen und Einfärben), jeweils
 mit der Eingabegröße, die auch in Demo und Auswertung benutzt wird: eigenes Netz 320 × 256,
 Depth Anything 518 × 518. Erst einige Aufwärmdurchläufe, dann der Mittelwert über viele
@@ -31,10 +35,10 @@ def da2_net(model_id):
     return model, (518, 518), lambda m, x: m(pixel_values=x).predicted_depth
 
 
-def ms_per_image(model, forward, size, device, runs, warmup):
+def ms_per_image(model, forward, size, device, runs, warmup, half=False):
     model = model.to(device)
     x = torch.randn(1, 3, *size, device=device)
-    with torch.no_grad():
+    with torch.no_grad(), torch.autocast("cuda", dtype=torch.float16, enabled=half):
         for _ in range(warmup):
             forward(model, x)
         if device == "cuda":
@@ -54,6 +58,7 @@ def main():
     ap.add_argument("--da2-model", default=DA2_ID)
     ap.add_argument("--runs", type=int, default=100, help="Durchläufe auf der Grafikkarte")
     ap.add_argument("--cpu-runs", type=int, default=10, help="Durchläufe auf dem Prozessor (0 = weglassen)")
+    ap.add_argument("--fp16", action="store_true", help="auf der Grafikkarte zusätzlich mit 16-Bit-Zahlen messen")
     args = ap.parse_args()
 
     models = {}
@@ -73,13 +78,16 @@ def main():
         g = ms_per_image(model, forward, size, "cuda", args.runs, 10) if gpu else float("nan")
         c = ms_per_image(model, forward, size, "cpu", args.cpu_runs, 2) if args.cpu_runs else float("nan")
         rows.append((name, params, size, g, c))
+        if args.fp16 and gpu:
+            h = ms_per_image(model, forward, size, "cuda", args.runs, 10, half=True)
+            rows.append((name + " (16 Bit)", params, size, h, float("nan")))
         print(f"{name}: fertig", flush=True)
 
     print(f"\n{'Modell':26s}{'Parameter':>12s}{'Eingabe':>12s}{'GPU ms/Bild':>14s}{'GPU Bilder/s':>14s}"
           f"{'CPU ms/Bild':>14s}{'CPU Bilder/s':>14s}")
     for name, params, (h, w), g, c in rows:
         print(f"{name:26s}{params:10.1f} M{f'{w}x{h}':>12s}{g:14.1f}{1000 / g:14.1f}{c:14.0f}{1000 / c:14.1f}")
-    if len(rows) == 2:
+    if len(rows) == 2:  # ohne --fp16: eigenes Netz und Depth Anything
         (_, p1, _, g1, c1), (_, p2, _, g2, c2) = rows
         print(f"\nDepth Anything hat {p2 / p1:.1f}-mal so viele Parameter und braucht auf der Grafikkarte "
               f"{g2 / g1:.1f}-mal, auf dem Prozessor {c2 / c1:.1f}-mal so lange pro Bild.")
