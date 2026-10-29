@@ -25,7 +25,8 @@ train.py               Training
 evaluate.py            Auswertung eines Netzes mit Beispielbildern
 analyze.py             Vergleich mit Depth Anything V2 und Test „unten im Bild = näher“
 check_data.py          Datensatz vor dem Training prüfen
-live_demo.py           Webcam-Demo
+live_demo.py           Live-Demo: Kamera, eigenes Netz und Depth Anything nebeneinander
+start_demo.bat         Live-Demo unter Windows per Doppelklick starten
 webcam_test.py         Test mit echten Webcam-Fotos (Hand vorne/hinten)
 speed_test.py          Größe und Geschwindigkeit: eigenes Netz gegen Depth Anything V2 Small
 notebooks/gamedepth_colab.ipynb   alles Schritt für Schritt auf Google Colab
@@ -74,10 +75,14 @@ Für flüssige Bilder Netzteil anschließen und in Armoury Crate den Modus *Turb
 ## Live-Demo
 
 ```bash
-python live_demo.py --checkpoint rhd.pt
+python live_demo.py --checkpoints rhd.pt mix.pt gta.pt --da2
 ```
 
-Links das Kamerabild, rechts die geschätzte Tiefe (hell = nah). Oben links steht, wie viele Bilder pro Sekunde das Netz schafft. Tasten: `q` beenden, `s` Screenshot, `f` Vollbild. Eine externe USB-Webcam wählt man mit `--camera 1`.
+Unter Windows startet ein Doppelklick auf `start_demo.bat` dasselbe im Vollbild (Netze als `rhd.pt`, `mix.pt`, `gta.pt` im Ordner; fehlende werden übersprungen).
+
+Nebeneinander: Kamerabild, Schätzung des eigenen Netzes und Depth Anything V2 Small zum Vergleich (hell = nah). Über jedem Bild steht die Rechenzeit pro Bild. Besucher halten die Hand vor den Körper (wird hell) und dann hinter sich auf Hüfthöhe – dort irrt sich das eigene Netz oft, Depth Anything nicht (siehe Ergebnisse).
+
+Tasten: `1`/`2`/`3` eigenes Netz wechseln, `d` Depth Anything ein/aus, `f` Vollbild, `s` Bildschirmfoto, `q` oder `Esc` beenden. `--offline` lädt Depth Anything nur aus dem Zwischenspeicher (einmal vorher mit Internet starten). Eine externe USB-Webcam wählt man mit `--camera 1`.
 
 ## Test mit echten Fotos
 

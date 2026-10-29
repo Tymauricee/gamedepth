@@ -9,3 +9,4 @@ __pycache__/
 webcam_fotos/
 screenshot_*.png
 .venv/
+demo_*.png
