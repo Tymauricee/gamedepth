@@ -15,6 +15,9 @@ Tasten (im Demo-Fenster):
   s          Bildschirmfoto speichern
   q / Esc    beenden (oder Fenster schließen)
 
+Oben rechts: Bilder/s insgesamt und die Rechenzeit pro Bild. Ist die Rechenzeit viel kleiner als
+1000 / Bilder/s, wartet die Demo auf die Kamera -> camera_test.py zeigt die schnellste Einstellung.
+
 --offline lädt Depth Anything nur aus dem Zwischenspeicher (vorher einmal mit Internet
 starten), damit die Demo ohne Netz auf der KI-CON nicht hängt.
 """
@@ -80,10 +83,10 @@ def legend(width):
 
 
 @lru_cache(maxsize=64)
-def title(width, fps):
+def title(width, fps, ms_compute):
     return bar(width, 56, [(16, "GameDepth – Tiefe aus einem einzigen Kamerabild, gelernt nur aus Spieldaten",
                             24 if width >= 1400 else 17, FG),
-                           (-16, f"{fps:4.1f} Bilder/s", 16, GREY)])
+                           (-16, f"{fps:4.1f} Bilder/s · Rechnen {ms_compute:.0f} ms", 15, GREY)])
 
 
 @lru_cache(maxsize=64)
@@ -175,6 +178,11 @@ def main():
     ap.add_argument("--da2-size", default="518x420", help="Eingabe Depth Anything, Breite x Höhe (Vielfache von 14)")
     ap.add_argument("--offline", action="store_true", help="Depth Anything nur aus dem Zwischenspeicher laden")
     ap.add_argument("--camera", type=int, default=0)
+    ap.add_argument("--cam-size", default="640x480", help="gewünschte Kameraauflösung (mehr bringt nichts, kostet Bilder/s)")
+    ap.add_argument("--cam-fps", type=int, default=30, help="gewünschte Bilder/s der Kamera")
+    ap.add_argument("--mjpg", action="store_true", help="Kamera im Format MJPG (oft nötig für 30 Bilder/s)")
+    ap.add_argument("--backend", choices=["auto", "msmf", "dshow"], default="auto",
+                    help="Kamera-Schnittstelle unter Windows (siehe camera_test.py)")
     ap.add_argument("--width", type=int, default=320, help="Eingabebreite eigenes Netz (Vielfaches von 32)")
     ap.add_argument("--height", type=int, default=256, help="Eingabehöhe eigenes Netz (Vielfaches von 32)")
     ap.add_argument("--fullscreen", action="store_true")
@@ -205,9 +213,19 @@ def main():
                   "Einmal mit Internet und ohne --offline starten, dann ist es gespeichert.", flush=True)
     da2_w, da2_h = (int(v) for v in args.da2_size.lower().split("x"))
 
-    cap = cv2.VideoCapture(args.camera)
+    backend = {"auto": cv2.CAP_ANY, "msmf": cv2.CAP_MSMF, "dshow": cv2.CAP_DSHOW}[args.backend]
+    cap = cv2.VideoCapture(args.camera, backend)
     if not cap.isOpened():
         raise SystemExit("Keine Kamera gefunden. Mit --camera 1 eine andere probieren.")
+    if args.mjpg:
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+    cam_w, cam_h = (int(v) for v in args.cam_size.lower().split("x"))
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, cam_w)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, cam_h)
+    cap.set(cv2.CAP_PROP_FPS, args.cam_fps)
+    print(f"Kamera: {int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))}, "
+          f"meldet {cap.get(cv2.CAP_PROP_FPS):.0f} Bilder/s (Schnittstelle {args.backend}"
+          f"{', MJPG' if args.mjpg else ''})", flush=True)
     win = "GameDepth Live-Demo"
     cv2.namedWindow(win, cv2.WINDOW_NORMAL)
     full = args.fullscreen
@@ -216,12 +234,12 @@ def main():
 
     active, show_da2, show_cam = 0, da2 is not None, True
     half = device == "cuda" and not args.da2_fp32  # 16-Bit-Zahlen: schneller auf der Grafikkarte
-    shown_labels, shown_fps, next_update, last_size = None, 0.0, 0.0, None
+    shown_labels, shown_fps, next_update, last_size = None, (0.0, 0), 0.0, None
     color_own, color_da2 = Colorizer(), Colorizer()
     # Zeiten als Median der letzten 30 Bilder; die ersten Bilder nach dem Start (Grafikkarte wärmt sich auf,
     # einmaliges Laden) zählen nicht mit, sonst wirken die Zahlen anfangs viel schlechter
-    t_own, t_da2, t_frame = deque(maxlen=30), deque(maxlen=30), deque(maxlen=30)
-    ms_own = ms_da2 = fps = 0.0
+    t_own, t_da2, t_frame, t_comp = (deque(maxlen=30) for _ in range(4))
+    ms_own = ms_da2 = fps = ms_comp = 0.0
     frame_no, warmup = 0, 10
     last = time.perf_counter()
     with torch.no_grad():
@@ -230,6 +248,7 @@ def main():
             if not ok:
                 print("Kamera liefert kein Bild mehr.", flush=True)
                 break
+            t_start = time.perf_counter()  # ab hier Rechnen, vorher Warten auf die Kamera
             frame = crop_to_panel(cv2.flip(frame, 1))  # wie ein Spiegel
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
@@ -265,11 +284,13 @@ def main():
             if frame_no > warmup:
                 t_frame.append(now - last)
                 fps = 1 / max(float(np.median(t_frame)), 1e-6)
+                t_comp.append((now - t_start) * 1000)
+                ms_comp = float(np.median(t_comp))
             last = now
             if now >= next_update or len(labels) != len(shown_labels or ()):  # Zahlen nur 2-mal pro Sekunde
-                shown_labels, shown_fps, next_update = tuple(labels), round(fps, 1), now + 0.5
+                shown_labels, shown_fps, next_update = tuple(labels), (round(fps, 1), round(ms_comp)), now + 0.5
             width = PANEL_W * len(panels)
-            view = np.vstack([title(width, shown_fps), header(width, shown_labels), np.hstack(panels), legend(width)])
+            view = np.vstack([title(width, *shown_fps), header(width, shown_labels), np.hstack(panels), legend(width)])
             if full:
                 view_shown = fit_to_window(win, view)
             else:  # Fenstergröße an das Bild anpassen, damit nichts verzerrt wird

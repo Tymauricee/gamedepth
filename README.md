@@ -27,6 +27,7 @@ analyze.py             Vergleich mit Depth Anything V2 und Test „unten im Bild
 check_data.py          Datensatz vor dem Training prüfen
 live_demo.py           Live-Demo: Kamera, eigenes Netz und Depth Anything nebeneinander
 start_demo.bat         Live-Demo unter Windows per Doppelklick starten
+camera_test.py         misst, wie viele Bilder/s die Webcam bei welcher Einstellung liefert
 webcam_test.py         Test mit echten Webcam-Fotos (Hand vorne/hinten)
 speed_test.py          Größe und Geschwindigkeit: eigenes Netz gegen Depth Anything V2 Small
 notebooks/gamedepth_colab.ipynb   alles Schritt für Schritt auf Google Colab
