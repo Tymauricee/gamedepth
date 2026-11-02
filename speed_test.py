@@ -83,10 +83,10 @@ def main():
             rows.append((name + " (16 Bit)", params, size, h, float("nan")))
         print(f"{name}: fertig", flush=True)
 
-    print(f"\n{'Modell':26s}{'Parameter':>12s}{'Eingabe':>12s}{'GPU ms/Bild':>14s}{'GPU Bilder/s':>14s}"
+    print(f"\n{'Modell':34s}{'Parameter':>12s}{'Eingabe':>12s}{'GPU ms/Bild':>14s}{'GPU Bilder/s':>14s}"
           f"{'CPU ms/Bild':>14s}{'CPU Bilder/s':>14s}")
     for name, params, (h, w), g, c in rows:
-        print(f"{name:26s}{params:10.1f} M{f'{w}x{h}':>12s}{g:14.1f}{1000 / g:14.1f}{c:14.0f}{1000 / c:14.1f}")
+        print(f"{name:34s}{params:10.1f} M{f'{w}x{h}':>12s}{g:14.1f}{1000 / g:14.1f}{c:14.0f}{1000 / c:14.1f}")
     if len(rows) == 2:  # ohne --fp16: eigenes Netz und Depth Anything
         (_, p1, _, g1, c1), (_, p2, _, g2, c2) = rows
         print(f"\nDepth Anything hat {p2 / p1:.1f}-mal so viele Parameter und braucht auf der Grafikkarte "
