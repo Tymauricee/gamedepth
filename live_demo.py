@@ -183,6 +183,8 @@ def main():
     ap.add_argument("--mjpg", action="store_true", help="Kamera im Format MJPG (oft nötig für 30 Bilder/s)")
     ap.add_argument("--backend", choices=["auto", "msmf", "dshow"], default="auto",
                     help="Kamera-Schnittstelle unter Windows (siehe camera_test.py)")
+    ap.add_argument("--exposure", type=float, default=None,
+                    help="feste Belichtung 2^x Sekunden, z. B. -5 (siehe camera_test.py --belichtung)")
     ap.add_argument("--width", type=int, default=320, help="Eingabebreite eigenes Netz (Vielfaches von 32)")
     ap.add_argument("--height", type=int, default=256, help="Eingabehöhe eigenes Netz (Vielfaches von 32)")
     ap.add_argument("--fullscreen", action="store_true")
@@ -223,6 +225,9 @@ def main():
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, cam_w)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, cam_h)
     cap.set(cv2.CAP_PROP_FPS, args.cam_fps)
+    if args.exposure is not None:
+        cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)
+        cap.set(cv2.CAP_PROP_EXPOSURE, args.exposure)
     print(f"Kamera: {int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))}, "
           f"meldet {cap.get(cv2.CAP_PROP_FPS):.0f} Bilder/s (Schnittstelle {args.backend}"
           f"{', MJPG' if args.mjpg else ''})", flush=True)
@@ -323,6 +328,8 @@ def main():
                 name = f"demo_{time.strftime('%Y%m%d_%H%M%S')}.png"
                 cv2.imwrite(name, view)
                 print(f"Gespeichert: {name}", flush=True)
+    if args.exposure is not None:  # Automatik wiederherstellen, manche Treiber merken sich die Einstellung
+        cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.75)
     cap.release()
     cv2.destroyAllWindows()
 
