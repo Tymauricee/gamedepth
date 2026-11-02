@@ -21,6 +21,7 @@ starten), damit die Demo ohne Netz auf der KI-CON nicht hängt.
 import argparse
 import os
 import time
+from collections import deque
 from functools import lru_cache
 from pathlib import Path
 
@@ -217,7 +218,11 @@ def main():
     half = device == "cuda" and not args.da2_fp32  # 16-Bit-Zahlen: schneller auf der Grafikkarte
     shown_labels, shown_fps, next_update, last_size = None, 0.0, 0.0, None
     color_own, color_da2 = Colorizer(), Colorizer()
+    # Zeiten als Median der letzten 30 Bilder; die ersten Bilder nach dem Start (Grafikkarte wärmt sich auf,
+    # einmaliges Laden) zählen nicht mit, sonst wirken die Zahlen anfangs viel schlechter
+    t_own, t_da2, t_frame = deque(maxlen=30), deque(maxlen=30), deque(maxlen=30)
     ms_own = ms_da2 = fps = 0.0
+    frame_no, warmup = 0, 10
     last = time.perf_counter()
     with torch.no_grad():
         while True:
@@ -231,7 +236,10 @@ def main():
             t = time.perf_counter()
             x = to_tensor(cv2.resize(rgb, (args.width, args.height), interpolation=cv2.INTER_AREA)).to(device)
             near = np.exp(-nets[active][1](x)[0, 0].float().cpu().numpy())  # 1/Tiefe: groß = nah
-            ms_own += 0.1 * ((time.perf_counter() - t) * 1000 - ms_own)
+            frame_no += 1
+            if frame_no > warmup:
+                t_own.append((time.perf_counter() - t) * 1000)
+                ms_own = float(np.median(t_own))
             panels = [color_own(near)]
             labels = [f"GameDepth: {nets[active][0]} · {ms_own:.0f} ms"]
             if show_cam:
@@ -247,12 +255,16 @@ def main():
                     half = False
                     print("16 Bit liefert ungültige Werte, Depth Anything rechnet ab jetzt mit 32 Bit.", flush=True)
                     continue
-                ms_da2 += 0.1 * ((time.perf_counter() - t) * 1000 - ms_da2)
+                if frame_no > warmup:
+                    t_da2.append((time.perf_counter() - t) * 1000)
+                    ms_da2 = float(np.median(t_da2))
                 panels.append(color_da2(disp))
                 labels.append(f"Depth Anything V2 Small · {ms_da2:.0f} ms")
 
             now = time.perf_counter()
-            fps += 0.1 * (1 / max(now - last, 1e-6) - fps)
+            if frame_no > warmup:
+                t_frame.append(now - last)
+                fps = 1 / max(float(np.median(t_frame)), 1e-6)
             last = now
             if now >= next_update or len(labels) != len(shown_labels or ()):  # Zahlen nur 2-mal pro Sekunde
                 shown_labels, shown_fps, next_update = tuple(labels), round(fps, 1), now + 0.5
@@ -273,10 +285,14 @@ def main():
             if ord("1") <= key < ord("1") + len(nets):
                 active = key - ord("1")
                 color_own, next_update = Colorizer(), 0.0  # neuen Namen sofort anzeigen
+                t_own.clear()
             elif key in (ord("d"), ord("D")) and da2 is not None:
                 show_da2 = not show_da2
+                t_da2.clear()
+                t_frame.clear()
             elif key in (ord("k"), ord("K")):
                 show_cam = not show_cam  # ohne Kamerabild werden die Tiefenbilder im Vollbild größer
+                t_frame.clear()
             elif key in (ord("f"), ord("F")):
                 full = not full
                 cv2.setWindowProperty(win, cv2.WND_PROP_FULLSCREEN,
